@@ -1,0 +1,63 @@
+version: 2.1
+
+publish: &publish
+  working_directory: ~/my-app
+  docker:
+    - image: cimg/node:12.18
+  steps:
+    - checkout
+    - restore_cache:
+        key: dependency-cache-{{ checksum "package.json" }}
+    - run:
+        name: Yarn install
+        command: yarn
+    - save_cache:
+        key: dependency-cache-{{ checksum "package.json" }}
+        paths:
+          - ./node_modules
+    - run:
+        name: Install Expo CLI
+        command: yarn global add expo-cli
+    - run:
+        name: Lint project files
+        command: yarn lint
+    - run:
+        name: Login into Expo
+        command: yarn expo login -u $EXPO_USERNAME -p $EXPO_PASSWORD --non-interactive
+    - run:
+        name: Save current branch name to an env variable
+        command: |
+          if [ "${CIRCLE_BRANCH}" == "develop" ]; then
+            echo 'export REACT_NATIVE_API_DOMAIN=$REACT_NATIVE_DEV_API_DOMAIN' >> $BASH_ENV
+          elif [ "${CIRCLE_BRANCH}" == "staging" ]; then
+            echo 'export REACT_NATIVE_API_DOMAIN=$REACT_NATIVE_STAGING_API_DOMAIN' >> $BASH_ENV
+          else
+            echo 'export REACT_NATIVE_API_DOMAIN="noop"' >> $BASH_ENV
+          fi
+    - run:
+        name: Publish to Expo
+        command: |
+          yarn expo publish --non-interactive --max-workers 1 --release-channel $EXPO_RELEASE_CHANNEL
+
+jobs:
+  publish_to_expo_dev:
+    environment:
+      EXPO_RELEASE_CHANNEL: develop
+    <<: *publish
+
+  publish_to_expo_staging:
+    environment:
+      EXPO_RELEASE_CHANNEL: staging
+    <<: *publish
+
+workflows:
+  my_app:
+    jobs:
+      - publish_to_expo_dev:
+          filters:
+            branches:
+              only: develop
+      - publish_to_expo_staging:
+          filters:
+            branches:
+              only: staging
